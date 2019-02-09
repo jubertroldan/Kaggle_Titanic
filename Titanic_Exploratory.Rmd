@@ -1,0 +1,297 @@
+---
+title: "Titanic "
+author: "Jubert Roldan"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Objectives
+The aim of this is to get familiar with the Kaggle process and initialize model building process to solve a particular problem. 
+
+
+```{r filesLibraries, include=FALSE}
+test <- read.csv('test.csv') 
+train <- read.csv('train.csv')
+test_ans <- read.csv('Titanic_Test_Set.csv')
+
+train <- rbind(train,test_ans)
+
+library('randomForest')
+library('dplyr')
+```
+
+## Data Cleaning
+to extract all the useful variables within the dataset, I have chosen to use one-hot encoding to clean the dataset. this would involve creating binary categorical variables derrived from other feature variable.
+
+Let us explore our variables below:
+```{r var_explr1, echo=FALSE}
+str(train) # shows our variables
+```
+
+
+``` {r var_explr2, include=FALSE}
+train$Pclass <- as.factor(train$Pclass)
+train$Survived <- as.factor(train$Survived)
+
+
+# extracting the Title 
+train$Name <- as.character(train$Name)
+#strsplit(train$Name[1], split='[,.]')
+#strsplit(train$Name[1], split='[,.]')[[1]]
+train$Title <- strsplit(train$Name[1], split='[,.]')[[1]][2]
+train$Title <- sapply(train$Name, FUN=function(x) {strsplit(x, split='[,.]')[[1]][2]})
+
+table(train$Title)
+train$Title <- sub(' ', '', train$Title)
+#madamme and madmosielle
+train$Title[train$Title %in% c('Mme', 'Mlle')] <- 'Mlle'
+
+train$Title[train$Title %in% c('Dona', 'Lady', 'theCountess', 'Jonkheer')] <- 'Lady'
+train$Title[train$Title %in% c('Capt', 'Don', 'Major', 'Sir')] <- 'Sir'
+
+# change as factors for categorial variables
+train$Title <- factor(train$Title)
+
+# adding family size
+train$FamilySize <- train$SibSp + train$Parch + 1
+
+# adding surname
+train$Surname <- sapply(train$Name, FUN=function(x) {strsplit(x, split='[,.]')[[1]][1]})
+
+# family ID
+train$FamilyID <- paste(as.character(train$FamilySize), train$Surname, sep="")
+famIDs <- data.frame(table(train$FamilyID))
+famIDs <- famIDs[famIDs$Freq <= 2,]
+train$FamilyID[train$FamilyID %in% famIDs$Var1] <- 'Small'
+train$FamilyID <- factor(train$FamilyID)
+
+```
+
+added 4 derrived variables
+```{r var_explr3, echo=FALSE}
+str(train[c('Title','FamilySize','Surname','FamilyID')])
+```
+
+one hot encoding
+```{r onehotencoding, echo=FALSE}
+train_onehot <- train
+
+# Pclass 
+train_onehot$Pclass1 <- as.factor(if_else(train$Pclass=='1',1,0,missing=0))
+train_onehot$Pclass2 <- as.factor(if_else(train$Pclass=='2',1,0,missing=0))
+train_onehot$Pclass3 <- as.factor(if_else(train$Pclass=='3',1,0,missing=0))
+
+# Sex
+train_onehot$Male <-as.factor(if_else(train$Sex=='male',1,0,missing=0))
+train_onehot$Female <- as.factor(if_else(train$Sex=='female',1,0,missing=0))
+
+# Age
+train_onehot$AgeGroup0 <- as.factor(if_else(findInterval(train$Age,c(20,30,40,50,60,70,80,90))==0,1,0,missing=0))
+train_onehot$AgeGroup1 <- as.factor(if_else(findInterval(train$Age,c(20,30,40,50,60,70,80,90))==1,1,0,missing=0))
+train_onehot$AgeGroup2 <- as.factor(if_else(findInterval(train$Age,c(20,30,40,50,60,70,80,90))==2,1,0,missing=0))
+train_onehot$AgeGroup3 <- as.factor(if_else(findInterval(train$Age,c(20,30,40,50,60,70,80,90))==3,1,0,missing=0))
+train_onehot$AgeGroup4 <- as.factor(if_else(findInterval(train$Age,c(20,30,40,50,60,70,80,90))==4,1,0,missing=0))
+train_onehot$AgeGroup5 <- as.factor(if_else(findInterval(train$Age,c(20,30,40,50,60,70,80,90))==5,1,0,missing=0))
+train_onehot$AgeGroup6 <- as.factor(if_else(findInterval(train$Age,c(20,30,40,50,60,70,80,90))==6,1,0,missing=0))
+train_onehot$AgeGroup7 <- as.factor(if_else(findInterval(train$Age,c(20,30,40,50,60,70,80,90))==7,1,0,missing=0))
+
+# SibSp
+train_onehot$SibSp0 <- as.factor(if_else(train$SibSp==0,1,0,missing=0))
+train_onehot$SibSp1 <- as.factor(if_else(train$SibSp==1,1,0,missing=0))
+train_onehot$SibSp2 <- as.factor(if_else(train$SibSp==2,1,0,missing=0))
+train_onehot$SibSp3 <- as.factor(if_else(train$SibSp==3,1,0,missing=0))
+train_onehot$SibSp4 <- as.factor(if_else(train$SibSp==4,1,0,missing=0))
+train_onehot$SibSp5 <- as.factor(if_else(train$SibSp==5,1,0,missing=0))
+train_onehot$SibSp8 <- as.factor(if_else(train$SibSp==8,1,0,missing=0))
+
+# Parch
+train_onehot$Parch0 <- as.factor(if_else(train$SibSp==0,1,0,missing=0))
+train_onehot$Parch1 <- as.factor(if_else(train$SibSp==1,1,0,missing=0))
+train_onehot$Parch2 <- as.factor(if_else(train$SibSp==2,1,0,missing=0))
+train_onehot$Parch3 <- as.factor(if_else(train$SibSp==3,1,0,missing=0))
+train_onehot$Parch4 <- as.factor(if_else(train$SibSp==4,1,0,missing=0))
+train_onehot$Parch5 <- as.factor(if_else(train$SibSp==5,1,0,missing=0))
+train_onehot$Parch6 <- factor(if_else(train$SibSp==6,1,0,missing=0),levels=c("0","1"))
+
+
+# Title
+train_onehot$Title_Col <- factor(if_else(train$Title=='Col',1,0,missing=0),levels=c("0","1"))
+train_onehot$Title_Dr <- as.factor(if_else(train$Title=='Dr',1,0,missing=0))
+train_onehot$Title_Lady <- as.factor(if_else(train$Title=='Lady',1,0,missing=0))
+train_onehot$Title_Master <- as.factor(if_else(train$Title=='Master',1,0,missing=0))
+train_onehot$Title_Miss <- as.factor(if_else(train$Title=='Miss',1,0,missing=0))
+train_onehot$Title_Mlle <- as.factor(if_else(train$Title=='Mlle',1,0,missing=0))
+train_onehot$Title_Mr <- as.factor(if_else(train$Title=='Mr',1,0,missing=0))
+train_onehot$Title_Mrs <- as.factor(if_else(train$Title=='Mrs',1,0,missing=0))
+train_onehot$Title_Ms <- as.factor(if_else(train$Title=='Ms',1,0,missing=0))
+train_onehot$Title_Rev <- as.factor(if_else(train$Title=='Rev',1,0,missing=0))
+train_onehot$Title_Sir <- as.factor(if_else(train$Title=='Sir',1,0,missing=0))
+train_onehot$Title_Countess <- factor(if_else(train$Title=='The Countess',1,0,missing=0),levels=c("0","1"))
+
+# Embarked
+train_onehot$Embarked_C <- as.factor(if_else(train$Embarked=='C',1,0,missing=0))
+train_onehot$Embarked_Q <- as.factor(if_else(train$Embarked=='Q',1,0,missing=0))
+train_onehot$Embarked_S <- as.factor(if_else(train$Embarked=='S',1,0,missing=0))
+
+# FamilySize
+train_onehot$FamilySize1 <- as.factor(if_else(train$FamilySize==1,1,0,missing=0))
+train_onehot$FamilySize2 <- as.factor(if_else(train$FamilySize==2,1,0,missing=0))
+train_onehot$FamilySize3 <- as.factor(if_else(train$FamilySize==3,1,0,missing=0))
+train_onehot$FamilySize4 <- as.factor(if_else(train$FamilySize==4,1,0,missing=0))
+train_onehot$FamilySize5 <- as.factor(if_else(train$FamilySize==5,1,0,missing=0))
+train_onehot$FamilySize6 <- as.factor(if_else(train$FamilySize==6,1,0,missing=0))
+train_onehot$FamilySize7 <- as.factor(if_else(train$FamilySize==7,1,0,missing=0))
+train_onehot$FamilySize8 <- as.factor(if_else(train$FamilySize==8,1,0,missing=0))
+train_onehot$FamilySize11 <- as.factor(if_else(train$FamilySize==11,1,0,missing=0))
+
+# Fare
+train_onehot$Fare1 <- as.factor(if_else(findInterval(train$Fare,c(0,20,30,40,50,60,70,80,90,100))==1,1,0,missing=0))
+train_onehot$Fare2 <- as.factor(if_else(findInterval(train$Fare,c(0,20,30,40,50,60,70,80,90,100))==2,1,0,missing=0))
+train_onehot$Fare3 <- as.factor(if_else(findInterval(train$Fare,c(0,20,30,40,50,60,70,80,90,100))==3,1,0,missing=0))
+train_onehot$Fare4 <- as.factor(if_else(findInterval(train$Fare,c(0,20,30,40,50,60,70,80,90,100))==4,1,0,missing=0))
+train_onehot$Fare5 <- as.factor(if_else(findInterval(train$Fare,c(0,20,30,40,50,60,70,80,90,100))==5,1,0,missing=0))
+train_onehot$Fare6 <- as.factor(if_else(findInterval(train$Fare,c(0,20,30,40,50,60,70,80,90,100))==6,1,0,missing=0))
+train_onehot$Fare7 <- as.factor(if_else(findInterval(train$Fare,c(0,20,30,40,50,60,70,80,90,100))==7,1,0,missing=0))
+train_onehot$Fare8 <- as.factor(if_else(findInterval(train$Fare,c(0,20,30,40,50,60,70,80,90,100))==8,1,0,missing=0))
+train_onehot$Fare9 <- as.factor(if_else(findInterval(train$Fare,c(0,20,30,40,50,60,70,80,90,100))==9,1,0,missing=0))
+train_onehot$Fare10 <- as.factor(if_else(findInterval(train$Fare,c(0,20,30,40,50,60,70,80,90,100))==10,1,0,missing=0))
+train_onehot$Fare11 <- factor(if_else(findInterval(train$Fare,c(0,20,30,40,50,60,70,80,90,100))==11,1,0,missing=0),levels = c("0","1"))
+
+train_onehot <- data.frame(train_onehot[c(2,17:78)])
+
+
+## modify test 
+
+# extracting the Title 
+test$Name <- as.character(test$Name)
+#strsplit(test$Name[1], split='[,.]')
+#strsplit(test$Name[1], split='[,.]')[[1]]
+test$Title <- strsplit(test$Name[1], split='[,.]')[[1]][2]
+test$Title <- sapply(test$Name, FUN=function(x) {strsplit(x, split='[,.]')[[1]][2]})
+
+test$Title <- sub(' ', '', test$Title)
+#madamme and madmosielle
+test$Title[test$Title %in% c('Mme', 'Mlle')] <- 'Mlle'
+
+test$Title[test$Title %in% c('Dona', 'Lady', 'theCountess', 'Jonkheer')] <- 'Lady'
+test$Title[test$Title %in% c('Capt', 'Don', 'Major', 'Sir')] <- 'Sir'
+
+# change as factors for categorial variables
+test$Title <- factor(test$Title)
+
+# adding family size
+test$FamilySize <- test$SibSp + test$Parch + 1
+
+# adding surname
+test$Surname <- sapply(test$Name, FUN=function(x) {strsplit(x, split='[,.]')[[1]][1]})
+
+# family ID
+test$FamilyID <- paste(as.character(test$FamilySize), test$Surname, sep="")
+famIDs <- data.frame(table(test$FamilyID))
+famIDs <- famIDs[famIDs$Freq <= 2,]
+test$FamilyID[test$FamilyID %in% famIDs$Var1] <- 'Small'
+test$FamilyID <- factor(test$FamilyID)
+
+
+
+
+test_onehot <- test
+# Pclass 
+test_onehot$Pclass1 <- as.factor(if_else(test$Pclass=='1',1,0,missing=0))
+test_onehot$Pclass2 <- as.factor(if_else(test$Pclass=='2',1,0,missing=0))
+test_onehot$Pclass3 <- as.factor(if_else(test$Pclass=='3',1,0,missing=0))
+
+# Sex
+test_onehot$Male <-as.factor(if_else(test$Sex=='male',1,0,missing=0))
+test_onehot$Female <- as.factor(if_else(test$Sex=='female',1,0,missing=0))
+
+# Age
+test_onehot$AgeGroup0 <- as.factor(if_else(findInterval(test$Age,c(20,30,40,50,60,70,80,90))==0,1,0,missing=0))
+test_onehot$AgeGroup1 <- as.factor(if_else(findInterval(test$Age,c(20,30,40,50,60,70,80,90))==1,1,0,missing=0))
+test_onehot$AgeGroup2 <- as.factor(if_else(findInterval(test$Age,c(20,30,40,50,60,70,80,90))==2,1,0,missing=0))
+test_onehot$AgeGroup3 <- as.factor(if_else(findInterval(test$Age,c(20,30,40,50,60,70,80,90))==3,1,0,missing=0))
+test_onehot$AgeGroup4 <- as.factor(if_else(findInterval(test$Age,c(20,30,40,50,60,70,80,90))==4,1,0,missing=0))
+test_onehot$AgeGroup5 <- as.factor(if_else(findInterval(test$Age,c(20,30,40,50,60,70,80,90))==5,1,0,missing=0))
+test_onehot$AgeGroup6 <- as.factor(if_else(findInterval(test$Age,c(20,30,40,50,60,70,80,90))==6,1,0,missing=0))
+test_onehot$AgeGroup7 <- factor(if_else(findInterval(test$Age,c(20,30,40,50,60,70,80,90))==7,1,0,missing=0),levels=c("0","1"))
+
+# SibSp
+test_onehot$SibSp0 <- as.factor(if_else(test$SibSp==0,1,0,missing=0))
+test_onehot$SibSp1 <- as.factor(if_else(test$SibSp==1,1,0,missing=0))
+test_onehot$SibSp2 <- as.factor(if_else(test$SibSp==2,1,0,missing=0))
+test_onehot$SibSp3 <- as.factor(if_else(test$SibSp==3,1,0,missing=0))
+test_onehot$SibSp4 <- as.factor(if_else(test$SibSp==4,1,0,missing=0))
+test_onehot$SibSp5 <- as.factor(if_else(test$SibSp==5,1,0,missing=0))
+test_onehot$SibSp8 <- as.factor(if_else(test$SibSp==8,1,0,missing=0))
+
+# Parch
+test_onehot$Parch0 <- as.factor(if_else(test$SibSp==0,1,0,missing=0))
+test_onehot$Parch1 <- as.factor(if_else(test$SibSp==1,1,0,missing=0))
+test_onehot$Parch2 <- as.factor(if_else(test$SibSp==2,1,0,missing=0))
+test_onehot$Parch3 <- as.factor(if_else(test$SibSp==3,1,0,missing=0))
+test_onehot$Parch4 <- as.factor(if_else(test$SibSp==4,1,0,missing=0))
+test_onehot$Parch5 <- as.factor(if_else(test$SibSp==5,1,0,missing=0))
+test_onehot$Parch6 <- factor(if_else(test$SibSp==6,1,0,missing=0),levels=c("0","1"))
+
+
+# Title
+test_onehot$Title_Col <- as.factor(if_else(test$Title=='Col',1,0,missing=0))
+test_onehot$Title_Dr <- as.factor(if_else(test$Title=='Dr',1,0,missing=0))
+test_onehot$Title_Lady <- as.factor(if_else(test$Title=='Lady',1,0,missing=0))
+test_onehot$Title_Master <- as.factor(if_else(test$Title=='Master',1,0,missing=0))
+test_onehot$Title_Miss <- as.factor(if_else(test$Title=='Miss',1,0,missing=0))
+test_onehot$Title_Mlle <- factor(if_else(test$Title=='Mlle',1,0,missing=0),levels=c("0","1"))
+test_onehot$Title_Mr <- as.factor(if_else(test$Title=='Mr',1,0,missing=0))
+test_onehot$Title_Mrs <- as.factor(if_else(test$Title=='Mrs',1,0,missing=0))
+test_onehot$Title_Ms <- as.factor(if_else(test$Title=='Ms',1,0,missing=0))
+test_onehot$Title_Rev <- as.factor(if_else(test$Title=='Rev',1,0,missing=0))
+test_onehot$Title_Sir <- factor(if_else(test$Title=='Sir',1,0,missing=0),levels=c("0","1"))
+test_onehot$Title_Countess <- factor(if_else(test$Title=='The Countess',1,0,missing=0),levels=c("0","1"))
+
+# Embarked
+test_onehot$Embarked_C <- as.factor(if_else(test$Embarked=='C',1,0,missing=0))
+test_onehot$Embarked_Q <- as.factor(if_else(test$Embarked=='Q',1,0,missing=0))
+test_onehot$Embarked_S <- as.factor(if_else(test$Embarked=='S',1,0,missing=0))
+
+# FamilySize
+test_onehot$FamilySize1 <- as.factor(if_else(test$FamilySize==1,1,0,missing=0))
+test_onehot$FamilySize2 <- as.factor(if_else(test$FamilySize==2,1,0,missing=0))
+test_onehot$FamilySize3 <- as.factor(if_else(test$FamilySize==3,1,0,missing=0))
+test_onehot$FamilySize4 <- as.factor(if_else(test$FamilySize==4,1,0,missing=0))
+test_onehot$FamilySize5 <- as.factor(if_else(test$FamilySize==5,1,0,missing=0))
+test_onehot$FamilySize6 <- as.factor(if_else(test$FamilySize==6,1,0,missing=0))
+test_onehot$FamilySize7 <- as.factor(if_else(test$FamilySize==7,1,0,missing=0))
+test_onehot$FamilySize8 <- as.factor(if_else(test$FamilySize==8,1,0,missing=0))
+test_onehot$FamilySize11 <- as.factor(if_else(test$FamilySize==11,1,0,missing=0))
+
+# Fare
+test_onehot$Fare1 <- as.factor(if_else(findInterval(test$Fare,c(0,20,30,40,50,60,70,80,90,100))==1,1,0,missing=0))
+test_onehot$Fare2 <- as.factor(if_else(findInterval(test$Fare,c(0,20,30,40,50,60,70,80,90,100))==2,1,0,missing=0))
+test_onehot$Fare3 <- as.factor(if_else(findInterval(test$Fare,c(0,20,30,40,50,60,70,80,90,100))==3,1,0,missing=0))
+test_onehot$Fare4 <- as.factor(if_else(findInterval(test$Fare,c(0,20,30,40,50,60,70,80,90,100))==4,1,0,missing=0))
+test_onehot$Fare5 <- as.factor(if_else(findInterval(test$Fare,c(0,20,30,40,50,60,70,80,90,100))==5,1,0,missing=0))
+test_onehot$Fare6 <- as.factor(if_else(findInterval(test$Fare,c(0,20,30,40,50,60,70,80,90,100))==6,1,0,missing=0))
+test_onehot$Fare7 <- as.factor(if_else(findInterval(test$Fare,c(0,20,30,40,50,60,70,80,90,100))==7,1,0,missing=0))
+test_onehot$Fare8 <- as.factor(if_else(findInterval(test$Fare,c(0,20,30,40,50,60,70,80,90,100))==8,1,0,missing=0))
+test_onehot$Fare9 <- as.factor(if_else(findInterval(test$Fare,c(0,20,30,40,50,60,70,80,90,100))==9,1,0,missing=0))
+test_onehot$Fare10 <- as.factor(if_else(findInterval(test$Fare,c(0,20,30,40,50,60,70,80,90,100))==10,1,0,missing=0))
+test_onehot$Fare11 <- factor(if_else(findInterval(test$Fare,c(0,20,30,40,50,60,70,80,90,100))==11,1,0,missing=0),levels=c("0","1"))
+
+test_onehot <- data.frame(test_onehot[c(16:77)])
+```
+
+## Random Forest Model (RF) 
+```{r exploratory}
+RF <- randomForest(Survived~., data=train_onehot, importance=TRUE, mtry=6, ntree=500)
+predict_RF <- predict(RF, test_onehot, type='class')
+result <- data.frame(PassengerID = test$PassengerId ,Survived = predict_RF)
+head(result) ## this results as .78468
+#write.csv(result,"result.csv",row.names = FALSE)
+
+
+```
+
+contact me at <https://jubertroldan.com>
