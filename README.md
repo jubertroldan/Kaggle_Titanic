@@ -1,7 +1,6 @@
 # Kaggle_Titanic
 Titanic Dataset playground 
 
-This scored 0.78468 in the titanic dataset which is a decent simple prediction model using random forest
-while adding a little bit of Feature Engineering to improve the model performance.
+Solving the titanic dataset using Random Forest in R will yield to a score of 0.78468.
 
-the primary tool that was used is R.
+see .Rmd file for code details
